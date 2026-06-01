@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Styles de l'éditeur TipTap ─────────────────────────────────────────── */
+.ProseMirror {
+  @apply min-h-[200px] outline-none;
+}
+
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  @apply text-gray-400 pointer-events-none float-left h-0;
+}
+
+.ProseMirror ul,
+.ProseMirror ol {
+  @apply pl-6;
+}
+
+.ProseMirror ul {
+  @apply list-disc;
+}
+
+.ProseMirror ol {
+  @apply list-decimal;
+}
+
+.ProseMirror a {
+  @apply text-orange-500 underline cursor-pointer;
+}
+
+.ProseMirror strong {
+  @apply font-bold;
+}
+
+.ProseMirror em {
+  @apply italic;
+}
+
+.ProseMirror h1 {
+  @apply text-2xl font-bold;
+}
+.ProseMirror h2 {
+  @apply text-xl font-bold;
+}
+.ProseMirror h3 {
+  @apply text-lg font-bold;
+}
