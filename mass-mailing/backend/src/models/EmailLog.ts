@@ -1,6 +1,6 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
-export type EmailStatus = 'sent' | 'failed' | 'pending';
+export type EmailStatus = 'pending' | 'sent' | 'opened' | 'clicked' | 'failed';
 
 export interface IEmailLog extends Document {
   campaignId: mongoose.Types.ObjectId;
@@ -10,6 +10,8 @@ export interface IEmailLog extends Document {
   errorMessage?: string;
   unsubscribeToken: string;
   unsubscribedAt?: Date;
+  openedAt?: Date;
+  clickedAt?: Date;
   sentAt: Date;
 }
 
@@ -33,10 +35,12 @@ const EmailLogSchema = new Schema<IEmailLog>(
     },
     status: {
       type: String,
-      enum: ['sent', 'failed', 'pending'] as EmailStatus[],
+      enum: ['pending', 'sent', 'opened', 'clicked', 'failed'] as EmailStatus[],
       default: 'pending',
       index: true,
     },
+    openedAt: { type: Date, default: null },
+    clickedAt: { type: Date, default: null },
     errorMessage: {
       type: String,
       default: null,

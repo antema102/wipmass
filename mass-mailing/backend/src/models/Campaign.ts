@@ -8,7 +8,8 @@ export interface ICampaign extends Document {
   totalSent: number;
   totalFailed: number;
   totalUnsubscribed: number;
-  status: 'draft' | 'sending' | 'completed' | 'cancelled';
+  status: 'draft' | 'scheduled' | 'sending' | 'completed' | 'cancelled';
+  scheduledAt?: Date;
   createdAt: Date;
   completedAt?: Date;
 }
@@ -24,9 +25,11 @@ const CampaignSchema = new Schema<ICampaign>(
     totalUnsubscribed: { type: Number, default: 0 },
     status: {
       type: String,
-      enum: ['draft', 'sending', 'completed', 'cancelled'],
+      enum: ['draft', 'scheduled', 'sending', 'completed', 'cancelled'],
       default: 'draft',
+      index: true,
     },
+    scheduledAt: { type: Date, default: null },
     completedAt: { type: Date, default: null },
   },
   { timestamps: true }

@@ -1,6 +1,7 @@
 import { Routes, Route, NavLink } from 'react-router-dom';
 import ComposePage from './pages/ComposePage';
 import DashboardPage from './pages/DashboardPage';
+import ContactsPage from './pages/ContactsPage';
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   `px-4 py-2 rounded-md text-sm font-medium transition-colors ${
@@ -29,6 +30,9 @@ export default function App() {
             <NavLink to="/" end className={navLinkClass}>
               ✉️ Composer
             </NavLink>
+            <NavLink to="/contacts" className={navLinkClass}>
+              👥 Contacts
+            </NavLink>
             <NavLink to="/dashboard" className={navLinkClass}>
               📊 Dashboard
             </NavLink>
@@ -40,6 +44,7 @@ export default function App() {
       <main className="max-w-6xl mx-auto px-4 py-8">
         <Routes>
           <Route path="/" element={<ComposePage />} />
+          <Route path="/contacts" element={<ContactsPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
         </Routes>
       </main>

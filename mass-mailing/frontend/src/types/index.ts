@@ -49,3 +49,41 @@ export interface SendCampaignPayload {
   htmlBody: string;
   recipients: string[];
 }
+
+// ─── Contacts ─────────────────────────────────────────────────────────────────
+
+export interface Contact {
+  _id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  tags: string[];
+  isUnsubscribed: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ContactsResponse {
+  success: boolean;
+  data: Contact[];
+  pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    pages: number;
+  };
+}
+
+export interface CreateContactPayload {
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  tags?: string[];
+}
+
+export interface ImportContactsResult {
+  imported: number;
+  skipped: number;
+  invalid: number;
+  total: number;
+}

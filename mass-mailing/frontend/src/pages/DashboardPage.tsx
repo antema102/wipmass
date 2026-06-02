@@ -72,6 +72,7 @@ export default function DashboardPage() {
   const totalSent = campaigns.reduce((s, c) => s + c.totalSent, 0);
   const totalFailed = campaigns.reduce((s, c) => s + c.totalFailed, 0);
   const totalUnsub = campaigns.reduce((s, c) => s + c.totalUnsubscribed, 0);
+  void totalUnsub; // affiché dans le graphique via chartData
   const successRate =
     totalSent + totalFailed > 0
       ? ((totalSent / (totalSent + totalFailed)) * 100).toFixed(1)
