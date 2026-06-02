@@ -3,6 +3,9 @@ import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import Link from '@tiptap/extension-link';
 import TextAlign from '@tiptap/extension-text-align';
+import Image from '@tiptap/extension-image';
+import TextStyle from '@tiptap/extension-text-style';
+import Color from '@tiptap/extension-color';
 
 interface MailEditorProps {
   value: string;
@@ -21,11 +24,10 @@ const ToolbarButton = ({ onClick, isActive, title, children }: ToolbarButtonProp
     type="button"
     title={title}
     onClick={onClick}
-    className={`px-2 py-1 rounded text-sm font-medium transition-colors border ${
-      isActive
+    className={`px-2 py-1 rounded text-sm font-medium transition-colors border ${isActive
         ? 'bg-orange-500 text-white border-orange-500'
         : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
-    }`}
+      }`}
   >
     {children}
   </button>
@@ -40,6 +42,15 @@ export default function MailEditor({ onChange }: MailEditorProps) {
       Underline,
       Link.configure({ openOnClick: false }),
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
+      Image.configure({
+        inline: true,
+        allowBase64: true,
+        HTMLAttributes: {
+          style: 'max-width: 100%; height: auto;',
+        },
+      }),
+      TextStyle,
+      Color.configure({ types: ['textStyle'] }),
     ],
     editorProps: {
       attributes: {
@@ -64,6 +75,56 @@ export default function MailEditor({ onChange }: MailEditorProps) {
     editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
   };
 
+  const addImage = () => {
+    const url = window.prompt('URL de l\'image:');
+    if (!url) return;
+
+    const width = window.prompt('Largeur (optionnel, ex: 300px ou 100%):');
+    const height = window.prompt('Hauteur (optionnel, ex: auto ou 200px):');
+
+    const attrs: any = { src: url };
+    if (width) attrs.width = width;
+    if (height) attrs.height = height;
+
+    editor.chain().focus().setImage(attrs).run();
+  };
+
+  // Fonction pour augmenter la taille de l'image sélectionnée
+  const increaseImageSize = () => {
+    const { node } = editor.state.selection.$anchor.parent;
+    if (node && node.type.name === 'image') {
+      const currentWidth = node.attrs.width || '100%';
+      let newWidth = currentWidth;
+      
+      if (typeof currentWidth === 'string' && currentWidth.includes('px')) {
+        const num = parseInt(currentWidth);
+        newWidth = (num + 50) + 'px';
+      }
+      
+      editor.chain().focus().updateAttributes('image', { width: newWidth }).run();
+    }
+  };
+
+  // Fonction pour diminuer la taille de l'image sélectionnée
+  const decreaseImageSize = () => {
+    const { node } = editor.state.selection.$anchor.parent;
+    if (node && node.type.name === 'image') {
+      const currentWidth = node.attrs.width || '100%';
+      let newWidth = currentWidth;
+      
+      if (typeof currentWidth === 'string' && currentWidth.includes('px')) {
+        const num = parseInt(currentWidth);
+        if (num > 50) {
+          newWidth = (num - 50) + 'px';
+        }
+      }
+      
+      editor.chain().focus().updateAttributes('image', { width: newWidth }).run();
+    }
+  };
+
+  const isImageSelected = editor.isActive('image');
+
   return (
     <div className="border border-gray-300 rounded-lg overflow-hidden bg-white shadow-sm">
       {/* ── Barre d'outils ── */}
@@ -80,10 +141,10 @@ export default function MailEditor({ onChange }: MailEditorProps) {
             editor.isActive('heading', { level: 1 })
               ? '1'
               : editor.isActive('heading', { level: 2 })
-              ? '2'
-              : editor.isActive('heading', { level: 3 })
-              ? '3'
-              : 'p'
+                ? '2'
+                : editor.isActive('heading', { level: 3 })
+                  ? '3'
+                  : 'p'
           }
         >
           <option value="p">Paragraphe</option>
@@ -124,7 +185,27 @@ export default function MailEditor({ onChange }: MailEditorProps) {
         </ToolbarButton>
 
         <ToolbarDivider />
-
+        <div className="flex items-center gap-1">
+          <label htmlFor="text-color" className="text-xs font-medium text-gray-700">
+            Couleur :
+          </label>
+          <input
+            id="text-color"
+            type="color"
+            defaultValue="#000000"
+            onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
+            className="w-8 h-8 border border-gray-300 rounded cursor-pointer"
+            title="Changer la couleur du texte"
+          />
+          <button
+            onClick={() => editor.chain().focus().unsetColor().run()}
+            className="px-2 py-1 text-xs border border-gray-300 rounded bg-white text-gray-700 hover:bg-gray-100"
+            title="Réinitialiser la couleur"
+          >
+            ✕
+          </button>
+        </div>
+        <ToolbarDivider />
         <ToolbarButton
           title="Liste à puces"
           onClick={() => editor.chain().focus().toggleBulletList().run()}
@@ -169,6 +250,28 @@ export default function MailEditor({ onChange }: MailEditorProps) {
         <ToolbarButton title="Insérer un lien" onClick={setLink} isActive={editor.isActive('link')}>
           🔗
         </ToolbarButton>
+        <ToolbarButton title="Insérer une image" onClick={addImage}>
+          🖼️
+        </ToolbarButton>
+
+        {/* Boutons de redimensionnement d'image */}
+        {isImageSelected && (
+          <>
+            <ToolbarButton
+              title="Augmenter la taille de l'image"
+              onClick={increaseImageSize}
+            >
+              🔍➕
+            </ToolbarButton>
+            <ToolbarButton
+              title="Diminuer la taille de l'image"
+              onClick={decreaseImageSize}
+            >
+              🔍➖
+            </ToolbarButton>
+          </>
+        )}
+
         <ToolbarButton
           title="Bloc de citation"
           onClick={() => editor.chain().focus().toggleBlockquote().run()}

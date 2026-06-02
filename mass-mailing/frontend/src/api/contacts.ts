@@ -1,4 +1,4 @@
-import axios from 'axios';
+import api from './client';
 import type {
   ApiResponse,
   Contact,
@@ -6,11 +6,6 @@ import type {
   CreateContactPayload,
   ImportContactsResult,
 } from '../types';
-
-const api = axios.create({
-  baseURL: '/api',
-  headers: { 'Content-Type': 'application/json' },
-});
 
 export interface GetContactsParams {
   search?: string;

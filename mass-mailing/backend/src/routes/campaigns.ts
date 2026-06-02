@@ -1,5 +1,12 @@
 import { Router } from 'express';
-import { sendCampaign, getCampaigns, getCampaignLogs } from '../controllers/campaignController';
+import {
+	sendCampaign,
+	getCampaigns,
+	getCampaignById,
+	getCampaignLogs,
+	duplicateCampaign,
+	deleteCampaign,
+} from '../controllers/campaignController';
 
 const router = Router();
 
@@ -11,5 +18,14 @@ router.get('/', getCampaigns);
 
 // GET /api/campaigns/:id/logs — Logs d'une campagne spécifique
 router.get('/:id/logs', getCampaignLogs);
+
+// GET /api/campaigns/:id — Détail d'une campagne
+router.get('/:id', getCampaignById);
+
+// POST /api/campaigns/:id/duplicate — Duplique une campagne
+router.post('/:id/duplicate', duplicateCampaign);
+
+// DELETE /api/campaigns/:id — Supprime une campagne et ses logs
+router.delete('/:id', deleteCampaign);
 
 export default router;

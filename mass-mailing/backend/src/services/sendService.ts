@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { Campaign } from '../models/Campaign';
 import { EmailLog } from '../models/EmailLog';
+import { Contact } from '../models/Contact';
 import { mailerService } from './mailerService';
 import {
   injectUnsubscribeLink,
@@ -19,6 +20,7 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Envoie tous les e-mails d'une campagne en arrière-plan.
+ * - Filtre les contacts désabonnés
  * - Traitement par batch
  * - Retry x3 avec backoff exponentiel
  * - Injection automatique : tracking pixel, click tracking, lien désabonnement
@@ -32,16 +34,51 @@ export const processCampaignSend = async (campaignId: string): Promise<void> => 
 
   const { subject, htmlBody, recipients } = campaign;
   const baseUrl = process.env.APP_BASE_URL ?? 'http://localhost:5000';
-  const totalRecipients = recipients.length;
+  const normalizedRecipients = recipients.map((email) => email.trim().toLowerCase());
+  const uniqueRecipients = [...new Set(normalizedRecipients)];
+  
+  // ── Filtre les contacts désabonnés ──────────────────────────────────────
+  const unsubscribedContacts = await Contact.find(
+    { email: { $in: uniqueRecipients }, isUnsubscribed: true },
+    { email: 1 }
+  );
+  const unsubscribedLogs = await EmailLog.find(
+    {
+      recipient: { $in: uniqueRecipients },
+      unsubscribedAt: { $ne: null },
+    },
+    { recipient: 1 }
+  );
 
-  logger.info(`🚀 Envoi campagne "${campaign.name}" → ${totalRecipients} destinataire(s) | batch=${BATCH_SIZE}`);
+  const unsubscribedEmails = new Set([
+    ...unsubscribedContacts.map((c) => c.email),
+    ...unsubscribedLogs.map((l) => l.recipient),
+  ]);
+  const filteredRecipients = uniqueRecipients.filter((email) => !unsubscribedEmails.has(email));
+  const skippedCount = uniqueRecipients.length - filteredRecipients.length;
+
+  if (skippedCount > 0) {
+    logger.info(`⏭️  ${skippedCount} destinataire(s) désabonné(s) ignoré(s)`);
+  }
+
+  const totalRecipients = filteredRecipients.length;
+  if (totalRecipients === 0) {
+    logger.warn(`⚠️  Aucun destinataire valide pour la campagne "${campaign.name}"`);
+    await Campaign.findByIdAndUpdate(campaignId, {
+      status: 'completed',
+      completedAt: new Date(),
+    });
+    return;
+  }
+
+  logger.info(`🚀 Envoi campagne "${campaign.name}" → ${totalRecipients} destinataire(s) (${skippedCount} désabonné(s)) | batch=${BATCH_SIZE}`);
 
   let totalSent   = 0;
   let totalFailed = 0;
 
   // ── Traitement par batch ──────────────────────────────────────────────────
   for (let batchStart = 0; batchStart < totalRecipients; batchStart += BATCH_SIZE) {
-    const batch       = recipients.slice(batchStart, batchStart + BATCH_SIZE);
+    const batch       = filteredRecipients.slice(batchStart, batchStart + BATCH_SIZE);
     const batchNum    = Math.floor(batchStart / BATCH_SIZE) + 1;
     const totalBatches = Math.ceil(totalRecipients / BATCH_SIZE);
 

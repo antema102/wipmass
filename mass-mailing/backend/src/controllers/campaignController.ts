@@ -1,43 +1,20 @@
 import { Request, Response, NextFunction } from 'express';
-import { v4 as uuidv4 } from 'uuid';
 import mongoose from 'mongoose';
 import { Campaign } from '../models/Campaign';
 import { EmailLog } from '../models/EmailLog';
-import { mailerService } from '../services/mailerService';
+import { processCampaignSend } from '../services/sendService';
 
 interface SendCampaignBody {
   name: string;
   subject: string;
   htmlBody: string;
   recipients: string[];
+  scheduledAt?: string; // ISO date string (ex: "2026-06-05T14:30:00Z")
 }
 
 /**
- * Génère le lien de désabonnement et l'injecte dans le HTML du mail.
- */
-const injectUnsubscribeLink = (html: string, token: string): string => {
-  const baseUrl = process.env.APP_BASE_URL ?? 'http://localhost:5000';
-  const unsubscribeUrl = `${baseUrl}/api/unsubscribe/${token}`;
-
-  const unsubscribeFooter = `
-    <div style="margin-top:30px; padding-top:15px; border-top:1px solid #eee; font-size:11px; color:#999; text-align:center;">
-      Vous recevez cet e-mail car vous faites partie de notre liste de contacts.<br/>
-      <a href="${unsubscribeUrl}" style="color:#999; text-decoration:underline;">
-        Se désabonner de cette liste
-      </a>
-    </div>
-  `;
-
-  // Injecte avant </body> si présent, sinon à la fin
-  if (html.includes('</body>')) {
-    return html.replace('</body>', `${unsubscribeFooter}</body>`);
-  }
-  return html + unsubscribeFooter;
-};
-
-/**
  * POST /api/campaigns/send
- * Crée une campagne et envoie les e-mails en masse.
+ * Crée une campagne et envoie les e-mails en masse ou les planifie.
  */
 export const sendCampaign = async (
   req: Request<{}, {}, SendCampaignBody>,
@@ -45,7 +22,7 @@ export const sendCampaign = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const { name, subject, htmlBody, recipients } = req.body;
+    const { name, subject, htmlBody, recipients, scheduledAt } = req.body;
 
     // Validation basique
     if (!subject || !htmlBody || !recipients || recipients.length === 0) {
@@ -53,13 +30,40 @@ export const sendCampaign = async (
       return;
     }
 
-    // Filtre les emails valides et supprime les doublons
+    // Filtre les emails valides, normalise en lowercase et supprime les doublons
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const validRecipients = [...new Set(recipients.filter((e) => emailRegex.test(e.trim())))];
+    const validRecipients = [
+      ...new Set(
+        recipients
+          .map((e) => e.trim().toLowerCase())
+          .filter((e) => emailRegex.test(e))
+      ),
+    ];
 
     if (validRecipients.length === 0) {
       res.status(400).json({ success: false, message: 'Aucun destinataire valide fourni.' });
       return;
+    }
+
+    // Vérifie et valide la date de planification si fournie
+    let status = 'sending';
+    let scheduleDate: Date | undefined;
+
+    if (scheduledAt) {
+      const parsedDate = new Date(scheduledAt);
+      if (isNaN(parsedDate.getTime())) {
+        res.status(400).json({ success: false, message: 'Format de date invalide. Utilisez ISO 8601 (ex: 2026-06-05T14:30:00Z).' });
+        return;
+      }
+
+      const now = new Date();
+      if (parsedDate <= now) {
+        res.status(400).json({ success: false, message: 'La date de planification doit être dans le futur.' });
+        return;
+      }
+
+      status = 'scheduled';
+      scheduleDate = parsedDate;
     }
 
     // Crée la campagne en base
@@ -68,62 +72,29 @@ export const sendCampaign = async (
       subject,
       htmlBody,
       recipients: validRecipients,
-      status: 'sending',
+      status,
+      scheduledAt: scheduleDate,
     });
 
-    // Réponse immédiate → l'envoi continue en arrière-plan
-    res.status(202).json({
+    // Réponse
+    const message =
+      status === 'scheduled'
+        ? `Campagne "${campaign.name}" planifiée pour ${scheduleDate!.toLocaleString('fr-FR')}.`
+        : `Campagne "${campaign.name}" lancée pour ${validRecipients.length} destinataire(s).`;
+
+    res.status(status === 'scheduled' ? 201 : 202).json({
       success: true,
-      message: `Campagne "${campaign.name}" lancée pour ${validRecipients.length} destinataire(s).`,
+      message,
       campaignId: campaign._id,
+      status,
     });
 
-    // ---- Envoi asynchrone en arrière-plan ----
-    let totalSent = 0;
-    let totalFailed = 0;
-
-    for (const email of validRecipients) {
-      const token = uuidv4();
-      const personalizedHtml = injectUnsubscribeLink(htmlBody, token);
-
-      const log = await EmailLog.create({
-        campaignId: campaign._id,
-        recipient: email,
-        subject,
-        status: 'pending',
-        unsubscribeToken: token,
-        sentAt: new Date(),
+    // ---- Envoi asynchrone en arrière-plan (seulement si non planifiée) ----
+    if (status === 'sending') {
+      processCampaignSend((campaign._id as any).toString()).catch((err) => {
+        console.error(`Erreur lors de l'envoi de la campagne ${campaign._id}:`, err);
       });
-
-      try {
-        await mailerService.sendMail({
-          to: email,
-          subject,
-          html: personalizedHtml,
-        });
-
-        await EmailLog.findByIdAndUpdate(log._id, { status: 'sent' });
-        totalSent++;
-      } catch (mailError) {
-        const message = mailError instanceof Error ? mailError.message : 'Erreur inconnue';
-        await EmailLog.findByIdAndUpdate(log._id, { status: 'failed', errorMessage: message });
-        totalFailed++;
-        console.error(`❌ Échec envoi à ${email} :`, message);
-      }
-
-      // Délai anti-spam : 1 à 3 secondes entre chaque mail
-      await new Promise((resolve) => setTimeout(resolve, Math.random() * 2000 + 1000));
     }
-
-    // Met à jour la campagne une fois terminée
-    await Campaign.findByIdAndUpdate(campaign._id, {
-      totalSent,
-      totalFailed,
-      status: 'completed',
-      completedAt: new Date(),
-    });
-
-    console.log(`✅ Campagne ${campaign._id} terminée : ${totalSent} envoyés, ${totalFailed} échoués.`);
   } catch (error) {
     next(error);
   }
@@ -141,6 +112,35 @@ export const getCampaigns = async (
   try {
     const campaigns = await Campaign.find().sort({ createdAt: -1 }).lean();
     res.json({ success: true, data: campaigns });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/campaigns/:id
+ * Retourne une campagne spécifique.
+ */
+export const getCampaignById = async (
+  req: Request<{ id: string }>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ success: false, message: 'ID de campagne invalide.' });
+      return;
+    }
+
+    const campaign = await Campaign.findById(id).lean();
+    if (!campaign) {
+      res.status(404).json({ success: false, message: 'Campagne non trouvée.' });
+      return;
+    }
+
+    res.json({ success: true, data: campaign });
   } catch (error) {
     next(error);
   }
@@ -168,6 +168,81 @@ export const getCampaignLogs = async (
       .lean();
 
     res.json({ success: true, data: logs });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/campaigns/:id/duplicate
+ * Duplique une campagne existante (utile pour réutiliser les modèles).
+ */
+export const duplicateCampaign = async (
+  req: Request<{ id: string }>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ success: false, message: 'ID de campagne invalide.' });
+      return;
+    }
+
+    const originalCampaign = await Campaign.findById(id);
+    if (!originalCampaign) {
+      res.status(404).json({ success: false, message: 'Campagne non trouvée.' });
+      return;
+    }
+
+    // Duplique la campagne avec un nouveau nom et statut "draft"
+    const duplicatedCampaign = await Campaign.create({
+      name: `${originalCampaign.name} (copie)`,
+      subject: originalCampaign.subject,
+      htmlBody: originalCampaign.htmlBody,
+      recipients: [...originalCampaign.recipients],
+      status: 'draft',
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `Campagne dupliquée avec succès.`,
+      data: duplicatedCampaign,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * DELETE /api/campaigns/:id
+ * Supprime une campagne et tous ses logs associés.
+ */
+export const deleteCampaign = async (
+  req: Request<{ id: string }>,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ success: false, message: 'ID de campagne invalide.' });
+      return;
+    }
+
+    const campaign = await Campaign.findById(id);
+    if (!campaign) {
+      res.status(404).json({ success: false, message: 'Campagne non trouvée.' });
+      return;
+    }
+
+    // Supprime les logs associés puis la campagne
+    await EmailLog.deleteMany({ campaignId: id });
+    await campaign.deleteOne();
+
+    res.json({ success: true, message: `Campagne "${campaign.name}" et ses logs supprimés.` });
   } catch (error) {
     next(error);
   }

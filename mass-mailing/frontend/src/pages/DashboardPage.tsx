@@ -9,11 +9,13 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import { fetchCampaigns, fetchCampaignLogs } from '../api/campaigns';
+import { useNavigate } from 'react-router-dom';
+import { fetchCampaigns, fetchCampaignLogs, duplicateCampaign, deleteCampaign } from '../api/campaigns';
 import type { Campaign, EmailLog } from '../types';
 
 const STATUS_LABELS: Record<string, string> = {
   draft: '📝 Brouillon',
+  scheduled: '📅 Planifiée',
   sending: '⏳ En cours',
   completed: '✅ Terminée',
   cancelled: '🚫 Annulée',
@@ -21,12 +23,14 @@ const STATUS_LABELS: Record<string, string> = {
 
 const STATUS_COLORS: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-700',
+  scheduled: 'bg-violet-100 text-violet-700',
   sending: 'bg-blue-100 text-blue-700',
   completed: 'bg-green-100 text-green-700',
   cancelled: 'bg-red-100 text-red-700',
 };
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [selectedCampaign, setSelectedCampaign] = useState<Campaign | null>(null);
   const [logs, setLogs] = useState<EmailLog[]>([]);
@@ -60,6 +64,38 @@ export default function DashboardPage() {
     }
   };
 
+  const handleDuplicateCampaign = async (campaign: Campaign) => {
+    try {
+      const newCampaign = await duplicateCampaign(campaign._id);
+      // Recharger la liste des campagnes
+      const data = await fetchCampaigns();
+      setCampaigns(data);
+      alert(`✅ Campagne dupliquée : "${newCampaign.name}"`);
+    } catch (err) {
+      console.error('Erreur duplication campagne :', err);
+      alert('❌ Erreur lors de la duplication.');
+    }
+  };
+
+  const handleOpenCampaignInComposer = (campaign: Campaign) => {
+    navigate(`/?campaignId=${campaign._id}`);
+  };
+
+  const handleDeleteCampaign = async (campaign: Campaign) => {
+    if (!window.confirm(`Supprimer la campagne "${campaign.name}" et tous ses logs ? Cette action est irréversible.`)) return;
+    try {
+      await deleteCampaign(campaign._id);
+      setCampaigns((prev) => prev.filter((c) => c._id !== campaign._id));
+      if (selectedCampaign?._id === campaign._id) {
+        setSelectedCampaign(null);
+        setLogs([]);
+      }
+    } catch (err) {
+      console.error('Erreur suppression campagne :', err);
+      alert('❌ Erreur lors de la suppression.');
+    }
+  };
+
   // Données pour le graphique global
   const chartData = campaigns.map((c) => ({
     name: c.name.length > 15 ? c.name.slice(0, 15) + '…' : c.name,
@@ -78,6 +114,14 @@ export default function DashboardPage() {
       ? ((totalSent / (totalSent + totalFailed)) * 100).toFixed(1)
       : '—';
 
+  // Statistiques de tracking (ouvertures et clics)
+  const totalOpened = logs.filter((log) => log.openedAt).length;
+  const totalClicked = logs.filter((log) => log.clickedAt).length;
+  const openRate =
+    totalSent > 0 ? ((totalOpened / totalSent) * 100).toFixed(1) : '—';
+  const clickRate =
+    totalSent > 0 ? ((totalClicked / totalSent) * 100).toFixed(1) : '—';
+
   return (
     <div className="space-y-8">
       <div>
@@ -88,16 +132,24 @@ export default function DashboardPage() {
       </div>
 
       {/* ── KPIs globaux ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
         {[
           { label: 'Campagnes', value: campaigns.length, color: 'text-gray-800', bg: 'bg-white' },
           { label: 'E-mails envoyés', value: totalSent, color: 'text-green-600', bg: 'bg-green-50' },
           { label: 'Échecs', value: totalFailed, color: 'text-red-500', bg: 'bg-red-50' },
           { label: 'Taux de succès', value: `${successRate}%`, color: 'text-orange-500', bg: 'bg-orange-50' },
+          { label: 'Ouvertures', value: totalOpened, color: 'text-blue-600', bg: 'bg-blue-50' },
+          { label: 'Clics', value: totalClicked, color: 'text-emerald-600', bg: 'bg-emerald-50' },
         ].map(({ label, value, color, bg }) => (
           <div key={label} className={`${bg} rounded-xl p-5 shadow-sm border border-gray-200`}>
             <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</p>
             <p className={`text-3xl font-bold mt-1 ${color}`}>{value}</p>
+            {label === 'Ouvertures' && totalSent > 0 && (
+              <p className="text-xs text-gray-500 mt-1">Taux: {openRate}%</p>
+            )}
+            {label === 'Clics' && totalSent > 0 && (
+              <p className="text-xs text-gray-500 mt-1">Taux: {clickRate}%</p>
+            )}
           </div>
         ))}
       </div>
@@ -146,7 +198,7 @@ export default function DashboardPage() {
                   <th className="px-6 py-3 text-center">Échecs</th>
                   <th className="px-6 py-3 text-center">Désabonnés</th>
                   <th className="px-6 py-3 text-left">Date</th>
-                  <th className="px-6 py-3 text-center">Détails</th>
+                  <th className="px-6 py-3 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -177,12 +229,36 @@ export default function DashboardPage() {
                       })}
                     </td>
                     <td className="px-6 py-4 text-center">
-                      <button
-                        onClick={() => handleSelectCampaign(c)}
-                        className="text-xs text-orange-500 hover:text-orange-700 underline"
-                      >
-                        Voir logs
-                      </button>
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => handleSelectCampaign(c)}
+                          className="text-xs text-orange-500 hover:text-orange-700 underline"
+                          title="Afficher les logs"
+                        >
+                          📋 Logs
+                        </button>
+                        <button
+                          onClick={() => handleDuplicateCampaign(c)}
+                          className="text-xs text-blue-500 hover:text-blue-700 underline"
+                          title="Dupliquer cette campagne"
+                        >
+                          📋 Dupliquer
+                        </button>
+                        <button
+                          onClick={() => handleOpenCampaignInComposer(c)}
+                          className="text-xs text-violet-600 hover:text-violet-800 underline"
+                          title="Ouvrir dans Composer"
+                        >
+                          ✏️ Ouvrir
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCampaign(c)}
+                          className="text-xs text-red-500 hover:text-red-700 underline"
+                          title="Supprimer cette campagne et ses logs"
+                        >
+                          🗑️ Supprimer
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -215,9 +291,12 @@ export default function DashboardPage() {
                 <thead className="bg-gray-50 text-gray-500 uppercase text-xs tracking-wide sticky top-0">
                   <tr>
                     <th className="px-6 py-3 text-left">Destinataire</th>
-                    <th className="px-6 py-3 text-center">Statut</th>
+                    <th className="px-6 py-3 text-center">Statut d'envoi</th>
+                    <th className="px-6 py-3 text-center">Interactions</th>
                     <th className="px-6 py-3 text-left">Erreur</th>
                     <th className="px-6 py-3 text-left">Date d'envoi</th>
+                    <th className="px-6 py-3 text-left">Ouvert le</th>
+                    <th className="px-6 py-3 text-left">Cliqué le</th>
                     <th className="px-6 py-3 text-left">Désabonné le</th>
                   </tr>
                 </thead>
@@ -227,14 +306,37 @@ export default function DashboardPage() {
                       <td className="px-6 py-3 text-gray-700">{log.recipient}</td>
                       <td className="px-6 py-3 text-center">
                         {log.status === 'sent' && <span className="text-green-600 font-medium">✅ Envoyé</span>}
+                        {log.status === 'opened' && <span className="text-blue-600 font-medium">👁️ Ouvert</span>}
+                        {log.status === 'clicked' && <span className="text-emerald-600 font-medium">🔗 Cliqué</span>}
                         {log.status === 'failed' && <span className="text-red-500 font-medium">❌ Échoué</span>}
                         {log.status === 'pending' && <span className="text-blue-500 font-medium">⏳ En attente</span>}
+                      </td>
+                      <td className="px-6 py-3 text-center">
+                        <div className="flex items-center justify-center gap-2 text-xs">
+                          {log.openedAt && <span className="text-blue-600 font-medium">👁️</span>}
+                          {log.clickedAt && <span className="text-green-600 font-medium">🔗</span>}
+                          {!log.openedAt && !log.clickedAt && <span className="text-gray-400">—</span>}
+                        </div>
                       </td>
                       <td className="px-6 py-3 text-red-400 text-xs">{log.errorMessage ?? '—'}</td>
                       <td className="px-6 py-3 text-gray-500 text-xs whitespace-nowrap">
                         {new Date(log.sentAt).toLocaleDateString('fr-FR', {
                           day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
                         })}
+                      </td>
+                      <td className="px-6 py-3 text-blue-500 text-xs whitespace-nowrap">
+                        {log.openedAt
+                          ? new Date(log.openedAt).toLocaleDateString('fr-FR', {
+                              day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+                            })
+                          : '—'}
+                      </td>
+                      <td className="px-6 py-3 text-green-600 text-xs whitespace-nowrap">
+                        {log.clickedAt
+                          ? new Date(log.clickedAt).toLocaleDateString('fr-FR', {
+                              day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+                            })
+                          : '—'}
                       </td>
                       <td className="px-6 py-3 text-orange-500 text-xs whitespace-nowrap">
                         {log.unsubscribedAt

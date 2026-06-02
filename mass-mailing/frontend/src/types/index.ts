@@ -1,6 +1,6 @@
 // ─── Campagnes ───────────────────────────────────────────────────────────────
 
-export type CampaignStatus = 'draft' | 'sending' | 'completed' | 'cancelled';
+export type CampaignStatus = 'draft' | 'scheduled' | 'sending' | 'completed' | 'cancelled';
 
 export interface Campaign {
   _id: string;
@@ -12,13 +12,14 @@ export interface Campaign {
   totalFailed: number;
   totalUnsubscribed: number;
   status: CampaignStatus;
+  scheduledAt?: string;
   createdAt: string;
   completedAt?: string;
 }
 
 // ─── Logs ────────────────────────────────────────────────────────────────────
 
-export type EmailStatus = 'sent' | 'failed' | 'pending';
+export type EmailStatus = 'pending' | 'sent' | 'opened' | 'clicked' | 'failed';
 
 export interface EmailLog {
   _id: string;
@@ -28,8 +29,10 @@ export interface EmailLog {
   status: EmailStatus;
   errorMessage?: string;
   unsubscribeToken: string;
-  unsubscribedAt?: string;
   sentAt: string;
+  openedAt?: string;
+  clickedAt?: string;
+  unsubscribedAt?: string;
 }
 
 // ─── Réponses API ─────────────────────────────────────────────────────────────
@@ -39,6 +42,27 @@ export interface ApiResponse<T> {
   message?: string;
   data?: T;
   campaignId?: string;
+  status?: string;
+}
+
+export interface AuthUser {
+  email: string;
+  role: 'admin';
+}
+
+export interface AuthPayload {
+  token: string;
+  user: AuthUser;
+}
+
+export interface MailSettings {
+  smtpHost: string;
+  smtpPort: number;
+  smtpSecure: boolean;
+  smtpUser: string;
+  smtpPass: string;
+  fromName: string;
+  fromEmail: string;
 }
 
 // ─── Payload d'envoi ─────────────────────────────────────────────────────────
@@ -48,6 +72,7 @@ export interface SendCampaignPayload {
   subject: string;
   htmlBody: string;
   recipients: string[];
+  scheduledAt?: string;
 }
 
 // ─── Contacts ─────────────────────────────────────────────────────────────────

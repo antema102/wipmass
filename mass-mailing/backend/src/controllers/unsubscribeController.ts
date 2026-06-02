@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { EmailLog } from '../models/EmailLog';
 import { Campaign } from '../models/Campaign';
+import { Contact } from '../models/Contact';
 
 /**
  * GET /api/unsubscribe/:token
@@ -26,9 +27,29 @@ export const unsubscribeByToken = async (
       return;
     }
 
+    const normalizedEmail = log.recipient.trim().toLowerCase();
+
     // Marque l'e-mail comme désabonné
+    log.recipient = normalizedEmail;
     log.unsubscribedAt = new Date();
     await log.save();
+
+    // Persiste le désabonnement global pour bloquer toutes les futures campagnes
+    await Contact.findOneAndUpdate(
+      { email: normalizedEmail },
+      {
+        $set: {
+          email: normalizedEmail,
+          isUnsubscribed: true,
+        },
+        $setOnInsert: {
+          firstName: '',
+          lastName: '',
+          tags: [],
+        },
+      },
+      { upsert: true, new: true }
+    );
 
     // Incrémente le compteur de la campagne
     await Campaign.findByIdAndUpdate(log.campaignId, {
@@ -38,7 +59,7 @@ export const unsubscribeByToken = async (
     res.send(
       renderPage(
         '✅ Désabonnement confirmé',
-        `L'adresse <strong>${log.recipient}</strong> a bien été retirée de notre liste de contacts.`,
+        `L'adresse <strong>${normalizedEmail}</strong> a bien été retirée de notre liste de contacts.`,
         true
       )
     );

@@ -1,7 +1,12 @@
+import { useEffect, useState } from 'react';
 import { Routes, Route, NavLink } from 'react-router-dom';
 import ComposePage from './pages/ComposePage';
 import DashboardPage from './pages/DashboardPage';
 import ContactsPage from './pages/ContactsPage';
+import SettingsPage from './pages/SettingsPage';
+import LoginPage from './pages/LoginPage';
+import { fetchMe } from './api/auth';
+import type { AuthPayload, AuthUser } from './types';
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   `px-4 py-2 rounded-md text-sm font-medium transition-colors ${
@@ -11,6 +16,54 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   }`;
 
 export default function App() {
+  const [authLoading, setAuthLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+
+  useEffect(() => {
+    const bootstrapAuth = async () => {
+      const token = localStorage.getItem('auth_token');
+
+      if (!token) {
+        setAuthLoading(false);
+        return;
+      }
+
+      try {
+        const user = await fetchMe();
+        setCurrentUser(user);
+      } catch {
+        localStorage.removeItem('auth_token');
+        setCurrentUser(null);
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+
+    bootstrapAuth();
+  }, []);
+
+  const handleLoginSuccess = (payload: AuthPayload) => {
+    localStorage.setItem('auth_token', payload.token);
+    setCurrentUser(payload.user);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('auth_token');
+    setCurrentUser(null);
+  };
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-sm text-gray-500">Chargement...</p>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return <LoginPage onLoginSuccess={handleLoginSuccess} />;
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* ── Navigation ── */}
@@ -18,7 +71,7 @@ export default function App() {
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <img
-              src="https://wipoutsourcing.com/assets/logo-D9ZicQF7.png"
+              src="https://www.wipwork.com/assets/WipWork-749f2510.png"
               alt="Wip Outsourcing"
               className="h-8 object-contain"
             />
@@ -36,7 +89,20 @@ export default function App() {
             <NavLink to="/dashboard" className={navLinkClass}>
               📊 Dashboard
             </NavLink>
+            <NavLink to="/settings" className={navLinkClass}>
+              ⚙️ Parametres
+            </NavLink>
           </nav>
+          <div className="flex items-center gap-3 ml-3">
+            <span className="text-xs text-gray-500 hidden md:block">{currentUser.email}</span>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="px-3 py-2 text-xs font-medium rounded-md border border-gray-300 text-gray-600 hover:bg-gray-100"
+            >
+              Deconnexion
+            </button>
+          </div>
         </div>
       </header>
 
@@ -46,6 +112,7 @@ export default function App() {
           <Route path="/" element={<ComposePage />} />
           <Route path="/contacts" element={<ContactsPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </main>
     </div>
